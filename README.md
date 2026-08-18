@@ -1,6 +1,13 @@
-# smart-image-engine
+# smart-image-engine 🎨
 
 A free, hybrid AI image generation library for the browser.
+
+[![Live Demo](https://img.shields.io/badge/🚀_Live_Demo-Try_It_Now!-brightgreen?style=for-the-badge)](https://chaitanyalp24-gif.github.io/smart-image-engine/demo/)
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/MPL-2.0)
+
+> 🔗 **Live Demo**: [https://chaitanyalp24-gif.github.io/smart-image-engine/demo/](https://chaitanyalp24-gif.github.io/smart-image-engine/demo/)
+
+---
 
 - **WebGPU available** → generates images 100% locally, offline, for free using
   `Xenova/sd-turbo` via [`@huggingface/transformers`](https://github.com/huggingface/transformers.js) (transformers.js).
