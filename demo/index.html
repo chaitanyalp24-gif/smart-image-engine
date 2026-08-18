@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>smart-image-engine — demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+  textarea, input[type="text"] { width: 100%; box-sizing: border-box; padding: 0.5rem; font-size: 1rem; }
+  button { padding: 0.5rem 1rem; margin: 0.25rem 0.25rem 0.25rem 0; cursor: pointer; }
+  #log { white-space: pre-wrap; font-family: monospace; font-size: 0.85rem; background: #111; color: #0f0; padding: 0.75rem; border-radius: 4px; max-height: 240px; overflow-y: auto; }
+  img#output { max-width: 100%; border-radius: 8px; margin-top: 1rem; display: block; }
+  fieldset { margin-top: 1.5rem; border-radius: 8px; }
+  .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+</style>
+
+<!--
+  This import map lets the browser resolve the bare "@huggingface/transformers"
+  specifier used inside dist/index.js (it's marked `external` in tsup so it's
+  never bundled — dynamic import() only, so cloud-only usage never pays for it).
+  If you prefer to self-host instead of hitting a CDN, download the package
+  once and point this at a local path.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "@huggingface/transformers": "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0"
+  }
+}
+</script>
+</head>
+<body>
+  <h1>smart-image-engine — demo</h1>
+  <p>Run <code>npm run build</code> first so <code>../dist/index.js</code> and <code>../dist/cache-tools.js</code> exist, then open this file with a local static server (not <code>file://</code> — ES module imports need http).</p>
+
+  <fieldset>
+    <legend>1. Model cache (fixes re-downloading sd-turbo every lab session)</legend>
+    <div class="row">
+      <button id="btnCacheSize">Check cache size</button>
+      <button id="btnExport">Export cache to file</button>
+      <input type="file" id="importFile" accept=".bin" />
+      <button id="btnImport">Import cache from file</button>
+      <button id="btnClear">Clear cache</button>
+    </div>
+    <p>Workflow: build once, run <strong>init()</strong> below with WebGPU active so the model downloads, then <strong>Export cache to file</strong> and save it somewhere persistent (USB stick, personal Drive folder). Next lab session, before Init, use <strong>Import cache from file</strong> — init() will then find everything cached and skip the network.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>2. Engine</legend>
+    <div class="row">
+      <button id="btnInit">Init engine</button>
+      <span id="backendLabel">backend: (not initialized)</span>
+    </div>
+    <textarea id="prompt" rows="2" placeholder="a watercolor fox in a misty forest">a watercolor fox in a misty forest</textarea>
+    <div class="row">
+      <button id="btnGenerate">Generate</button>
+      <label><input type="checkbox" id="forceCloud" /> force cloud backend (skip WebGPU, fast iteration)</label>
+    </div>
+    <img id="output" alt="" />
+  </fieldset>
+
+  <h3>Log</h3>
+  <div id="log"></div>
+
+  <script type="module">
+    import { SmartImageEngine } from "../dist/index.js";
+    import {
+      exportModelCache,
+      importModelCache,
+      downloadModelCache,
+      getModelCacheSize,
+      clearModelCache,
+    } from "../dist/cache-tools.js";
+
+    const logEl = document.getElementById("log");
+    function log(...args) {
+      const line = args.map(a => (typeof a === "object" ? JSON.stringify(a) : a)).join(" ");
+      logEl.textContent += line + "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(...args);
+    }
+
+    let engine = null;
+
+    document.getElementById("btnCacheSize").addEventListener("click", async () => {
+      try {
+        const bytes = await getModelCacheSize();
+        log(`Cache size: ${(bytes / 1024 / 1024).toFixed(1)} MB`);
+      } catch (err) {
+        log("Cache size check failed:", err.message);
+      }
+    });
+
+    document.getElementById("btnExport").addEventListener("click", async () => {
+      try {
+        log("Exporting model cache…");
+        const blob = await exportModelCache();
+        downloadModelCache(blob, "sd-turbo-cache.bin");
+        log(`Exported ${(blob.size / 1024 / 1024).toFixed(1)} MB. Save this file somewhere persistent.`);
+      } catch (err) {
+        log("Export failed:", err.message);
+      }
+    });
+
+    document.getElementById("btnImport").addEventListener("click", async () => {
+      const input = document.getElementById("importFile");
+      const file = input.files?.[0];
+      if (!file) {
+        log("Pick a .bin file first.");
+        return;
+      }
+      try {
+        log("Importing model cache…");
+        const result = await importModelCache(file, {
+          onProgress: (done, total) => {
+            if (done % 5 === 0 || done === total) log(`  restored ${done}/${total} entries`);
+          },
+        });
+        log(`Import complete: ${result.entriesRestored} entries into "${result.cacheName}".`);
+      } catch (err) {
+        log("Import failed:", err.message);
+      }
+    });
+
+    document.getElementById("btnClear").addEventListener("click", async () => {
+      const deleted = await clearModelCache();
+      log(deleted ? "Cache cleared." : "No cache to clear.");
+    });
+
+    document.getElementById("btnInit").addEventListener("click", async () => {
+      const forceCloud = document.getElementById("forceCloud").checked;
+      engine = new SmartImageEngine({
+        forceBackend: forceCloud ? "cloud" : undefined,
+        onProgress: (status, progress) => log(`[progress] ${status}${progress != null ? ` (${progress}%)` : ""}`),
+      });
+      log("Initializing engine…");
+      const backend = await engine.init();
+      document.getElementById("backendLabel").textContent = `backend: ${backend}`;
+      log(`Init complete. Backend: ${backend}`);
+    });
+
+    document.getElementById("btnGenerate").addEventListener("click", async () => {
+      if (!engine) {
+        log("Click Init first.");
+        return;
+      }
+      const prompt = document.getElementById("prompt").value.trim();
+      if (!prompt) return;
+      log(`Requesting image for: "${prompt}"…`);
+      const t0 = performance.now();
+      const result = await engine.generate(prompt);
+      
+      const img = document.getElementById("output");
+      img.style.opacity = "0.4";
+      log(`URL created via ${result.backend}. Fetching image content…`);
+      
+      img.onload = () => {
+        img.style.opacity = "1";
+        const ms = Math.round(performance.now() - t0);
+        log(`✓ Image loaded and rendered in ${ms}ms via ${result.backend}.`);
+      };
+      img.onerror = () => {
+        img.style.opacity = "1";
+        log(`✗ Failed to load image from URL: ${result.url}`);
+      };
+      img.src = result.url;
+    });
+  </script>
+</body>
+</html>

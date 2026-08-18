@@ -1,0 +1,13 @@
+# Rename this to .npmrc and point it at a folder that survives between lab
+# sessions (a USB stick, a personal OneDrive/Google Drive synced folder,
+# etc). npm will then reuse its download cache across sessions instead of
+# re-fetching every package (including @huggingface/transformers) from the
+# registry each time you run `npm install` on a fresh machine profile.
+#
+# Example, assuming a USB drive mounted at D:\:
+# cache=D:\npm-cache
+#
+# Example, assuming a synced personal cloud folder:
+# cache=C:\Users\<you>\OneDrive\npm-cache
+
+cache=./.npm-cache-portable
